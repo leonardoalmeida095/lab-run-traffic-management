@@ -109,5 +109,4 @@ jobs:
             --project ${{ env.GCP_PROJECT_ID }} \
             --allow-unauthenticated \
             --set-env-vars APP_VERSION=${{ env.VERSION }} \
-            --to-latest\
             --quiet
