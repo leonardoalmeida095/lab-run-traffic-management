@@ -57,15 +57,34 @@ jobs:
 
       - name: Deploy Preview to Cloud Run (No Traffic)
         run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE_URL }} \
+          run: |
+          #Verifica se o serviço ja existe.
+          if gcloud run services describe ${{ env.SERVICE_NAME }} \
             --region ${{ env.REGION }} \
-            --project ${{ env.GCP_PROJECT_ID }} \
-            --allow-unauthenticated \
-            --no-traffic \
-            --tag ${{ env.TAG_NAME }} \
-            --set-env-vars APP_VERSION=${{ env.TAG_NAME }} \
-            --quiet
+            --project ${{ env.GCP_PROJECT_ID }} > /dev/null 2>&1; then
+            
+            echo "Serviço '${{ env.SERVICE_NAME }}' já existe. Realizando deploy de PREVIEW (--no-traffic)..."
+            gcloud run deploy ${{ env.SERVICE_NAME }} \
+              --image ${{ env.IMAGE_URL }} \
+              --region ${{ env.REGION }} \
+              --project ${{ env.GCP_PROJECT_ID }} \
+              --allow-unauthenticated \
+              --no-traffic \
+              --tag ${{ env.TAG_NAME }} \
+              --set-env-vars APP_VERSION=${{ env.TAG_NAME }} \
+              --quiet
+              
+          else
+            echo "Serviço '${{ env.SERVICE_NAME }}' não encontrado. Realizando deploy INICIAL (100% tráfego)..."
+            gcloud run deploy ${{ env.SERVICE_NAME }} \
+              --image ${{ env.IMAGE_URL }} \
+              --region ${{ env.REGION }} \
+              --project ${{ env.GCP_PROJECT_ID }} \
+              --allow-unauthenticated \
+              --tag ${{ env.TAG_NAME }} \
+              --set-env-vars APP_VERSION=${{ env.TAG_NAME }} \
+              --quiet
+          fi
 
   # ---------------------------------------------------------
   # JOB 2: PRODUÇÃO (Roda quando criar uma Tag vX.Y.Z)
