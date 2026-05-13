@@ -128,5 +128,12 @@ jobs:
             --project ${{ env.GCP_PROJECT_ID }} \
             --allow-unauthenticated \
             --set-env-vars APP_VERSION=${{ env.VERSION }} \
+            --quiet
+      
+      - name: Routing traffic to latest revision
+        run: |
+          gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.GCP_PROJECT_ID }} \
             --to-latest \
             --quiet
