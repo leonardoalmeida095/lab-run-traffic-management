@@ -100,6 +100,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag  on Main
+        run: |
+          echo "Verificando se a tag ${{ github.ref_name }} pertence à branch main..."
+          
+          # Verifica se o commit atual (da tag) existe no histórico da origin/main
+          if ! git branch -r --contains ${{ github.sha }} | grep -q "origin/main"; then
+            echo "ERRO CRÍTICO: Operação bloqueada!"
+            echo "A tag '${{ github.ref_name }}' aponta para um commit que não está na branch 'main'. A tag foi criada antes do merde da PR"
+            echo "Exclua a nova tag, faça o merge da PR, e crie a tag novamente na branch main atualizada."
+            exit 1
+          fi
+          echo "Validação concluída: A tag veio de uma versão mergeada na main."
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
