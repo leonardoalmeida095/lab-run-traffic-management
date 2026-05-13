@@ -16,7 +16,7 @@ env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
   WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
-  REGION: us-east1
+  REGION: us-central1
   REPO_NAME: lab-run-traffic-management
   SERVICE_NAME: run-traffic-lab
 
