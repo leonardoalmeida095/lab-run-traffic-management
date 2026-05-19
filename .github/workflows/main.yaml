@@ -14,16 +14,56 @@ permissions:
 
 env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-  WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
-  REGION: us-central1
-  REPO_NAME: lab-run-traffic-management
-  SERVICE_NAME: run-traffic-lab
+  GCP_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+  WIF_PROVIDER: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ secrets.WIF_POOL_ID }}/providers/${{ secrets.WIF_PROVIDER_ID }}
+  GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+  CLOUD_RUN_SERVICE_ACCOUNT_EMAIL: ${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT_EMAIL }}
+  ARTIFACT_REGISTRY_LOCATION: us-central1
+  ARTIFACT_REGISTRY_REPO: repo-artefatos-imagens-preco-gas-gnl
+  PYTHON_REPO_URL: "us-central1-python.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/repo-artefatos-imagens-py-lib-custom"
+  IMAGE_NAME: ${{ github.event.repository.name }}
+  
+  # PARÂMETROS CONFIGURÁVEIS PELO USUÁRIO
+  CLOUD_RUN_SERVICE_NAME: webapp-pep
+  CLOUD_RUN_MEMORY: 4Gi 
+  CLOUD_RUN_CPU: "2" 
+  CLOUD_RUN_MAX_INSTANCES: "2" 
+  CLOUD_RUN_MIN_INSTANCES: "0" 
+  CLOUD_RUN_CONCURRENCY: "80"
+  CLOUD_RUN_REGION: us-central1
+  VPC_CONNECTOR_NAME: precogas-vpc-connector
+  VPC_HOST_PROJECT_ID: ${{ secrets.VPC_HOST_PROJECT_ID }}
 
 jobs:
-  # ---------------------------------------------------------
-  # JOB 1: PREVIEW (Roda quando abrir ou atualizar um PR)
-  # ---------------------------------------------------------
+  # JOB 1: VALIDATE (Roda no push para main OU em PRs para a main)
+  validate:
+    name: Validate Dependencies
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - name: Set up Cloud SDK (gcloud)
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: 'latest'
+      - name: Install Dependencies
+        run: |
+          export GCLOUD_TOKEN=$(gcloud auth print-access-token)
+          pip install \
+            --extra-index-url "https://oauth2accesstoken:${GCLOUD_TOKEN}@${{ env.PYTHON_REPO_URL }}/simple/repo-artefatos-imagens-py-lib-custom" \
+            -r requirements.txt
+
+  # JOB 2: PREVIEW (Roda quando abrir ou atualizar um PR)
   deploy_preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -35,24 +75,24 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev
 
-        #Aplicado o Buildx para uso de cache no Docker build.
       - name: Configure Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Set image variables
         run: |
           IMAGE_TAG="pr-${{ github.event.pull_request.number }}"
-          IMAGE_URL="${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/app:${IMAGE_TAG}"
-          echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
+          IMAGE_URL="${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+          echo "Building and pushing image: $IMAGE_URL"
           echo "TAG_NAME=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
 
       - name: Build and Push Preview Image
         uses: docker/build-push-action@v5
@@ -65,39 +105,44 @@ jobs:
 
       - name: Deploy Preview to Cloud Run (No Traffic)
         run: |
-          #Verifica se o serviço já existe
-          if gcloud run services describe ${{ env.SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
-            --project ${{ env.GCP_PROJECT_ID }} > /dev/null 2>&1; then
-
-          #Caso o serviço já exista, vai fazer o deploy de uma nova revisão em modo preview (sem trafego).
-            echo "Serviço '${{ env.SERVICE_NAME }}' já existe. Realizando deploy de PREVIEW (--no-traffic)..."
-            gcloud run deploy ${{ env.SERVICE_NAME }} \
+          if gcloud run services describe ${{ env.CLOUD_RUN_SERVICE_NAME }} --region ${{ env.CLOUD_RUN_REGION }} --project=${{ env.GCP_PROJECT_ID }} > /dev/null 2>&1; then
+            echo "Serviço '${{ env.CLOUD_RUN_SERVICE_NAME }}' já existe. Realizando deploy de PREVIEW (--no-traffic)..."
+            gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
               --image ${{ env.IMAGE_URL }} \
-              --region ${{ env.REGION }} \
-              --project ${{ env.GCP_PROJECT_ID }} \
-              --allow-unauthenticated \
+              --service-account=${{ env.CLOUD_RUN_SERVICE_ACCOUNT_EMAIL }} \
+              --memory=${{ env.CLOUD_RUN_MEMORY }} \
+              --cpu=${{ env.CLOUD_RUN_CPU }} \
+              --min-instances=${{ env.CLOUD_RUN_MIN_INSTANCES }} \
+              --max-instances=${{ env.CLOUD_RUN_MAX_INSTANCES }} \
+              --concurrency=${{ env.CLOUD_RUN_CONCURRENCY }} \
+              --vpc-connector=${{ env.VPC_CONNECTOR_NAME }} \
+              --ingress=internal \
+              --no-allow-unauthenticated \
+              --region ${{ env.CLOUD_RUN_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }} \
               --no-traffic \
               --tag ${{ env.TAG_NAME }} \
               --set-env-vars APP_VERSION=${{ env.TAG_NAME }} \
               --quiet
-          
-          #Caso o serviço não exista, vai fazer criar o serviço com a primeira revisão e direcionar 100% do trafego.
           else
-            echo "Serviço '${{ env.SERVICE_NAME }}' não encontrado. Realizando deploy INICIAL (100% tráfego)..."
-            gcloud run deploy ${{ env.SERVICE_NAME }} \
+            echo "Serviço '${{ env.CLOUD_RUN_SERVICE_NAME }}' não encontrado. Realizando deploy INICIAL (100% tráfego)..."
+            gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
               --image ${{ env.IMAGE_URL }} \
-              --region ${{ env.REGION }} \
-              --project ${{ env.GCP_PROJECT_ID }} \
-              --allow-unauthenticated \
-              --tag ${{ env.TAG_NAME }} \
-              --set-env-vars APP_VERSION=${{ env.TAG_NAME }} \
+              --service-account=${{ env.CLOUD_RUN_SERVICE_ACCOUNT_EMAIL }} \
+              --memory=${{ env.CLOUD_RUN_MEMORY }} \
+              --cpu=${{ env.CLOUD_RUN_CPU }} \
+              --min-instances=${{ env.CLOUD_RUN_MIN_INSTANCES }} \
+              --max-instances=${{ env.CLOUD_RUN_MAX_INSTANCES }} \
+              --concurrency=${{ env.CLOUD_RUN_CONCURRENCY }} \
+              --vpc-connector=${{ env.VPC_CONNECTOR_NAME }} \
+              --ingress=internal \
+              --no-allow-unauthenticated \
+              --region ${{ env.CLOUD_RUN_REGION }} \
+              --project=${{ env.GCP_PROJECT_ID }} \
               --quiet
           fi
 
-  # ---------------------------------------------------------
-  # JOB 2: PRODUÇÃO (Roda quando criar uma Tag vX.Y.Z)
-  # ---------------------------------------------------------
+  # JOB 3: PRODUÇÃO (Roda quando criar uma Tag vX.Y.Z)
   deploy_prod:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
@@ -109,24 +154,24 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT_EMAIL }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev
 
-      #Aplicado o Buildx para uso de cache no Docker build.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Set Image Variables
+      - name: Set image variables
         run: |
-          VERSION=$(echo $GITHUB_REF_NAME | sed 's/v//')
-          IMAGE_URL="${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.REPO_NAME }}/app:${VERSION}"
+          IMAGE_TAG="${{ github.ref_name }}"
+          IMAGE_URL="${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+          echo "Building and pushing image: $IMAGE_URL"
+          echo "TAG_NAME=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Build and Push Prod Image
         uses: docker/build-push-action@v5
@@ -139,19 +184,26 @@ jobs:
 
       - name: Deploy Production to Cloud Run
         run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
+          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
             --image ${{ env.IMAGE_URL }} \
-            --region ${{ env.REGION }} \
-            --project ${{ env.GCP_PROJECT_ID }} \
-            --allow-unauthenticated \
-            --set-env-vars APP_VERSION=${{ env.VERSION }} \
+            --service-account=${{ env.CLOUD_RUN_SERVICE_ACCOUNT_EMAIL }} \
+            --memory=${{ env.CLOUD_RUN_MEMORY }} \
+            --cpu=${{ env.CLOUD_RUN_CPU }} \
+            --min-instances=${{ env.CLOUD_RUN_MIN_INSTANCES }} \
+            --max-instances=${{ env.CLOUD_RUN_MAX_INSTANCES }} \
+            --concurrency=${{ env.CLOUD_RUN_CONCURRENCY }} \
+            --vpc-connector=${{ env.VPC_CONNECTOR_NAME }} \
+            --ingress=internal \
+            --no-allow-unauthenticated \
+            --region ${{ env.CLOUD_RUN_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --set-env-vars APP_VERSION=${{ env.TAG_NAME }} \
             --quiet
-        
-        #Aplica o direcionamento de 100% do trafego para ultima versao.
+
       - name: Routing traffic to latest revision (100%)
         run: |
-          gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
+          gcloud run services update-traffic ${{ env.CLOUD_RUN_SERVICE_NAME }} \
+            --region ${{ env.CLOUD_RUN_REGION }} \
             --project ${{ env.GCP_PROJECT_ID }} \
             --to-latest \
             --quiet
