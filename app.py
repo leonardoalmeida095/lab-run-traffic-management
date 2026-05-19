@@ -11,7 +11,7 @@ def index():
     html = f"""
     <html>
         <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #f0f8ff;">
-            <h1>🚀 Teste de Tráfego Cloud Run (V6.3.0)</h1>
+            <h1>🚀 Teste de Tráfego Cloud Run - 10:19</h1>
             <h2>Versão do Preview: <span style="color: green;">{version}</span></h2>
         </body>
     </html>
