@@ -105,6 +105,7 @@ jobs:
 
       - name: Deploy Preview to Cloud Run (No Traffic)
         run: |
+          VPC_CONNECTOR="projects/${{ env.VPC_HOST_PROJECT_ID }}/locations/${{ env.CLOUD_RUN_REGION }}/connectors/${{ env.VPC_CONNECTOR_NAME }}"
           if gcloud run services describe ${{ env.CLOUD_RUN_SERVICE_NAME }} --region ${{ env.CLOUD_RUN_REGION }} --project=${{ env.GCP_PROJECT_ID }} > /dev/null 2>&1; then
             echo "Serviço '${{ env.CLOUD_RUN_SERVICE_NAME }}' já existe. Realizando deploy de PREVIEW (--no-traffic)..."
             gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
@@ -115,7 +116,7 @@ jobs:
               --min-instances=${{ env.CLOUD_RUN_MIN_INSTANCES }} \
               --max-instances=${{ env.CLOUD_RUN_MAX_INSTANCES }} \
               --concurrency=${{ env.CLOUD_RUN_CONCURRENCY }} \
-              --vpc-connector=${{ env.VPC_CONNECTOR_NAME }} \
+              --vpc-connector=${{ env.VPC_CONNECTOR }} \
               --ingress=internal \
               --no-allow-unauthenticated \
               --region ${{ env.CLOUD_RUN_REGION }} \
@@ -134,11 +135,12 @@ jobs:
               --min-instances=${{ env.CLOUD_RUN_MIN_INSTANCES }} \
               --max-instances=${{ env.CLOUD_RUN_MAX_INSTANCES }} \
               --concurrency=${{ env.CLOUD_RUN_CONCURRENCY }} \
-              --vpc-connector=${{ env.VPC_CONNECTOR_NAME }} \
+              --vpc-connector=${{ env.VPC_CONNECTOR }} \
               --ingress=internal \
               --no-allow-unauthenticated \
               --region ${{ env.CLOUD_RUN_REGION }} \
               --project=${{ env.GCP_PROJECT_ID }} \
+              --set-env-vars APP_VERSION=${{ env.TAG_NAME }} \
               --quiet
           fi
 
@@ -184,6 +186,7 @@ jobs:
 
       - name: Deploy Production to Cloud Run
         run: |
+          VPC_CONNECTOR="projects/${{ env.VPC_HOST_PROJECT_ID }}/locations/${{ env.CLOUD_RUN_REGION }}/connectors/${{ env.VPC_CONNECTOR_NAME }}"
           gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
             --image ${{ env.IMAGE_URL }} \
             --service-account=${{ env.CLOUD_RUN_SERVICE_ACCOUNT_EMAIL }} \
@@ -192,7 +195,7 @@ jobs:
             --min-instances=${{ env.CLOUD_RUN_MIN_INSTANCES }} \
             --max-instances=${{ env.CLOUD_RUN_MAX_INSTANCES }} \
             --concurrency=${{ env.CLOUD_RUN_CONCURRENCY }} \
-            --vpc-connector=${{ env.VPC_CONNECTOR_NAME }} \
+            --vpc-connector=${{ env.VPC_CONNECTOR }} \
             --ingress=internal \
             --no-allow-unauthenticated \
             --region ${{ env.CLOUD_RUN_REGION }} \
